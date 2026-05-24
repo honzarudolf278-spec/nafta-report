@@ -17,15 +17,33 @@ KAPACITA_NADRZE = 7000  # litrů
 # ── Autentizace ───────────────────────────────────────────────────────────────
 
 def _load_tokens() -> dict:
+    # 1) Čerstvě obnovené tokeny v session state (cloud i lokál)
+    if '_saved_tokens' in st.session_state:
+        return st.session_state['_saved_tokens']
+    # 2) Lokální soubor
     try:
         with open(TOKEN_FILE) as f:
             return json.load(f)
     except Exception:
-        return {}
+        pass
+    # 3) Streamlit Secrets (cloud deployment)
+    try:
+        tok = st.secrets.get("nafta_token", {})
+        if tok.get("refresh_token"):
+            return dict(tok)
+    except Exception:
+        pass
+    return {}
 
 def _save_tokens(data: dict):
-    with open(TOKEN_FILE, "w") as f:
-        json.dump(data, f)
+    # Vždy uložit do session state (funguje všude)
+    st.session_state['_saved_tokens'] = data
+    # Pokusit se uložit do souboru (funguje lokálně)
+    try:
+        with open(TOKEN_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception:
+        pass
 
 def _refresh(refresh_token: str) -> str | None:
     r = requests.post(f"{AUTHORITY}/token", data={

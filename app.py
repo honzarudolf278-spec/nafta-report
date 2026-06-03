@@ -427,7 +427,10 @@ with col_gauge:
 # --- Datum + Načíst ---
 col1, col2 = st.columns(2)
 with col1:
-    date_from = st.date_input("Od", value=date.today().replace(day=1))
+    _d = date.today()
+    _m, _y = _d.month - 2, _d.year
+    if _m <= 0: _m += 12; _y -= 1
+    date_from = st.date_input("Od", value=date(_y, _m, 1))
 with col2:
     date_to = st.date_input("Do", value=date.today())
 aktualizovat = st.button("🔄 Aktualizovat", type="primary")

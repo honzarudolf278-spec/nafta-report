@@ -452,6 +452,7 @@ def _nacti(token, date_from, date_to):
     events = fetch_events(token, cal_id, date_from, date_to)
     st.session_state.df = parse_events(events)
     st.session_state.nacteno_pro = (date_from, date_to)
+    st.session_state.zaplacene_ids = set()
     st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
 
 potreba_nacist = (
@@ -490,7 +491,15 @@ st.download_button("⬇ Stáhnout Excel", data=to_excel(df, st.session_state.get
 st.divider()
 
 # ── DLUHY ────────────────────────────────────────────────────────────────────
-dluhy = df_t[(df_t["platba"] == "Na dluh") & (~df_t["zaplaceno"].fillna(False))].copy()
+if "zaplacene_ids" not in st.session_state:
+    st.session_state.zaplacene_ids = set()
+
+_paid = st.session_state.zaplacene_ids
+dluhy = df_t[
+    (df_t["platba"] == "Na dluh") &
+    (~df_t["zaplaceno"].fillna(False)) &
+    (~df_t["event_id"].isin(_paid))
+].copy()
 ceny_df = st.session_state.get("ceny_df", pd.DataFrame(columns=["datum", "cena_za_litr"]))
 
 if not dluhy.empty:
@@ -528,9 +537,7 @@ if not dluhy.empty:
             with st.spinner("Ukládám..."):
                 ok = mark_as_paid(token, row["event_id"], row["body_raw"])
             if ok:
-                # Okamžitá aktualizace v paměti — nezávisí na rychlosti API
-                mask = st.session_state["df"]["event_id"] == row["event_id"]
-                st.session_state["df"].loc[mask, "zaplaceno"] = True
+                st.session_state.zaplacene_ids.add(row["event_id"])
                 st.rerun()
             else:
                 st.error("Nepodařilo se uložit.")

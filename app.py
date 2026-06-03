@@ -528,10 +528,9 @@ if not dluhy.empty:
             with st.spinner("Ukládám..."):
                 ok = mark_as_paid(token, row["event_id"], row["body_raw"])
             if ok:
-                time.sleep(2)
-                del st.session_state["df"]
-                del st.session_state["nacteno_pro"]
-                st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
+                # Okamžitá aktualizace v paměti — nezávisí na rychlosti API
+                mask = st.session_state["df"]["event_id"] == row["event_id"]
+                st.session_state["df"].loc[mask, "zaplaceno"] = True
                 st.rerun()
             else:
                 st.error("Nepodařilo se uložit.")

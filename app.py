@@ -16,17 +16,66 @@ KAPACITA_NADRZE = 7000  # litrů
 
 # ── Autentizace ───────────────────────────────────────────────────────────────
 
+def _gist_config() -> tuple:
+    """Vrátí (github_token, gist_id) ze secrets, nebo (None, None)."""
+    try:
+        g = st.secrets.get("gist", {})
+        gt = g.get("github_token")
+        gi = g.get("gist_id")
+        if gt and gi:
+            return gt, gi
+    except Exception:
+        pass
+    return None, None
+
+def _load_gist_tokens() -> dict:
+    github_token, gist_id = _gist_config()
+    if not github_token:
+        return {}
+    try:
+        r = requests.get(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {github_token}",
+                     "Accept": "application/vnd.github.v3+json"},
+            timeout=5,
+        )
+        if r.status_code == 200:
+            content = r.json()["files"]["nafta_token.json"]["content"]
+            return json.loads(content)
+    except Exception:
+        pass
+    return {}
+
+def _save_gist_tokens(data: dict):
+    github_token, gist_id = _gist_config()
+    if not github_token:
+        return
+    try:
+        requests.patch(
+            f"https://api.github.com/gists/{gist_id}",
+            headers={"Authorization": f"token {github_token}",
+                     "Accept": "application/vnd.github.v3+json"},
+            json={"files": {"nafta_token.json": {"content": json.dumps(data)}}},
+            timeout=5,
+        )
+    except Exception:
+        pass
+
 def _load_tokens() -> dict:
     # 1) Čerstvě obnovené tokeny v session state (cloud i lokál)
     if '_saved_tokens' in st.session_state:
         return st.session_state['_saved_tokens']
-    # 2) Lokální soubor
+    # 2) GitHub Gist (vždy aktuální refresh token)
+    gist_tokens = _load_gist_tokens()
+    if gist_tokens.get("refresh_token"):
+        return gist_tokens
+    # 3) Lokální soubor
     try:
         with open(TOKEN_FILE) as f:
             return json.load(f)
     except Exception:
         pass
-    # 3) Streamlit Secrets (cloud deployment)
+    # 4) Streamlit Secrets (počáteční nastavení / záloha)
     try:
         tok = st.secrets.get("nafta_token", {})
         if tok.get("refresh_token"):
@@ -38,6 +87,8 @@ def _load_tokens() -> dict:
 def _save_tokens(data: dict):
     # Vždy uložit do session state (funguje všude)
     st.session_state['_saved_tokens'] = data
+    # Uložit do GitHub Gist (trvalá persistence na cloudu)
+    _save_gist_tokens(data)
     # Pokusit se uložit do souboru (funguje lokálně)
     try:
         with open(TOKEN_FILE, "w") as f:

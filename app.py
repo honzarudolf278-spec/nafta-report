@@ -4,6 +4,7 @@ import requests
 import json
 import re
 import io
+import time
 from datetime import date, datetime
 import plotly.graph_objects as go
 
@@ -165,12 +166,23 @@ def fetch_events(token: str, cal_id: str | None, date_from: date, date_to: date)
     return events
 
 def mark_as_paid(token: str, event_id: str, body_raw: str) -> bool:
+    # Nepřidávej duplicitně
+    if re.search(r"Zaplaceno:\s*Ano", body_raw):
+        return True
     new_body = body_raw.rstrip() + "\nZaplaceno: Ano"
     r = requests.patch(
         f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
         headers={**_headers(token), "Content-Type": "application/json"},
         json={"body": {"contentType": "text", "content": new_body}},
     )
+    if r.status_code == 401:
+        token2 = get_valid_token()
+        if token2:
+            r = requests.patch(
+                f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+                headers={**_headers(token2), "Content-Type": "application/json"},
+                json={"body": {"contentType": "text", "content": new_body}},
+            )
     return r.status_code in (200, 204)
 
 def get_tank_info(token: str) -> tuple:
@@ -516,6 +528,7 @@ if not dluhy.empty:
             with st.spinner("Ukládám..."):
                 ok = mark_as_paid(token, row["event_id"], row["body_raw"])
             if ok:
+                time.sleep(2)
                 del st.session_state["df"]
                 del st.session_state["nacteno_pro"]
                 st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)

@@ -364,15 +364,24 @@ st.set_page_config(page_title="Nafta – přehled", layout="wide", page_icon="�
 
 # --- PIN ochrana ---
 if not st.session_state.get("pin_ok"):
-    st.title("⛽ Nafta – přístup")
-    pin = st.text_input("Zadej PIN", type="password")
-    if st.button("Vstoupit", type="primary"):
-        spravny_pin = st.secrets.get("app", {}).get("pin", "")
-        if pin == spravny_pin:
-            st.session_state.pin_ok = True
-            st.rerun()
-        else:
-            st.error("Nesprávný PIN")
+    st.markdown("""
+        <style>
+        .pin-box { max-width: 320px; margin: 15vh auto 0 auto; text-align: center; }
+        .pin-box input { text-align: center; letter-spacing: 4px; font-size: 1.4rem; }
+        </style>
+        <div class="pin-box"><h2>⛽ Nafta</h2></div>
+    """, unsafe_allow_html=True)
+    _, col, _ = st.columns([1, 1, 1])
+    with col:
+        pin = st.text_input("PIN", type="password", label_visibility="collapsed",
+                            placeholder="● ● ● ●")
+        if st.button("Vstoupit", type="primary", use_container_width=True):
+            spravny_pin = st.secrets.get("app", {}).get("pin", "")
+            if pin == spravny_pin:
+                st.session_state.pin_ok = True
+                st.rerun()
+            else:
+                st.error("Nesprávný PIN")
     st.stop()
 
 # --- Přihlášení ---

@@ -362,6 +362,19 @@ def tank_gauge(level: float) -> go.Figure:
 
 st.set_page_config(page_title="Nafta – přehled", layout="wide", page_icon="⛽")
 
+# --- PIN ochrana ---
+if not st.session_state.get("pin_ok"):
+    st.title("⛽ Nafta – přístup")
+    pin = st.text_input("Zadej PIN", type="password")
+    if st.button("Vstoupit", type="primary"):
+        spravny_pin = st.secrets.get("app", {}).get("pin", "")
+        if pin == spravny_pin:
+            st.session_state.pin_ok = True
+            st.rerun()
+        else:
+            st.error("Nesprávný PIN")
+    st.stop()
+
 # --- Přihlášení ---
 if "token" not in st.session_state:
     token = get_valid_token()

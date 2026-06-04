@@ -270,6 +270,26 @@ def smazat_zamestnance(token: str, contact_id: str) -> bool:
                         headers=_headers(token))
     return r.status_code == 204
 
+def upravit_korekci(token: str, event_id: str, litry: float, poznamka: str = "") -> bool:
+    nazev = f"Korekce nádrže: {litry:.0f} L"
+    popis = f"Litry: {litry} L"
+    if poznamka:
+        popis += f"\nPoznámka: {poznamka}"
+    r = requests.patch(
+        f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+        headers={**_headers(token), "Content-Type": "application/json"},
+        json={"subject": nazev, "body": {"contentType": "text", "content": popis}},
+    )
+    if r.status_code == 401:
+        token2 = get_valid_token()
+        if token2:
+            r = requests.patch(
+                f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+                headers={**_headers(token2), "Content-Type": "application/json"},
+                json={"subject": nazev, "body": {"contentType": "text", "content": popis}},
+            )
+    return r.status_code in (200, 204)
+
 def smazat_udalost(token: str, event_id: str) -> bool:
     r = requests.delete(
         f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
@@ -759,8 +779,8 @@ if not dluhy.empty:
     st.divider()
 
 # ── TABY ─────────────────────────────────────────────────────────────────────
-tab_t, tab_u, tab_spz, tab_kat, tab_d, tab_admin = st.tabs(
-    ["🚗 Tankování", "👤 Uživatelé", "🔧 Vozidla & Spotřeba", "🏷 Kategorie", "🛢 Doplnění", "⚙️ Správa"])
+tab_t, tab_u, tab_spz, tab_kat, tab_d, tab_kor, tab_admin = st.tabs(
+    ["🚗 Tankování", "👤 Uživatelé", "🔧 Vozidla & Spotřeba", "🏷 Kategorie", "🛢 Doplnění", "📋 Korekce", "⚙️ Správa"])
 
 with tab_t:
     cols = ["datum","uzivatel","spz","kategorie","platba","litry","tachometr","zaplaceno"]
@@ -850,6 +870,61 @@ with tab_d:
         c1.metric("Celkem doplněno", f"{df_d['litry'].sum():.1f} L")
         c2.metric("Průměrná cena/L", f"{df_d['cena_za_litr'].mean():.2f} Kč")
         c3.metric("Celkem zaplaceno", f"{df_d['celkem_kc'].sum():.0f} Kč")
+
+with tab_kor:
+    # Korekce ze všech historických dat
+    df_kor_vse = st.session_state.get("df_tank_vse")
+    df_kor = pd.DataFrame()
+    if df_kor_vse is not None and not df_kor_vse.empty:
+        # df_tank_vse obsahuje jen tankování — musíme sáhnout do plného df
+        pass
+    # Načteme korekce z aktuálního df (pokud jsou v období)
+    if not df.empty and "typ" in df.columns:
+        df_kor = df[df["typ"] == "Korekce"].sort_values("datum", ascending=False).reset_index(drop=True)
+
+    # Pokud nejsou v aktuálním období, načteme historické (get_tank_info volá všechny eventy)
+    if df_kor.empty:
+        with st.spinner("Načítám korekce..."):
+            cal_id = get_calendar_id(token)
+            all_ev = fetch_events(token, cal_id, date(2020, 1, 1), date.today())
+            df_all = parse_events(all_ev)
+            if not df_all.empty and "typ" in df_all.columns:
+                df_kor = df_all[df_all["typ"] == "Korekce"].sort_values("datum", ascending=False).reset_index(drop=True)
+
+    if df_kor.empty:
+        st.info("Zatím žádné korekce.")
+    else:
+        st.caption(f"Celkem korekcí: {len(df_kor)}")
+        for _, row in df_kor.iterrows():
+            poznamka_raw = _find(r"Poznámka:\s*([^\n]+)", _clean(row["body_raw"])) or ""
+            label = f"**{row['datum']}** — {row['litry']:.0f} L" + (f" — {poznamka_raw}" if poznamka_raw else "")
+            with st.expander(label):
+                kc1, kc2, kc3 = st.columns([2, 3, 1])
+                new_litry = kc1.number_input(
+                    "Litry", min_value=0.0, max_value=float(KAPACITA_NADRZE),
+                    value=float(row["litry"] or 0), step=50.0, format="%.0f",
+                    key=f"kor_l_{row['event_id']}")
+                new_poz = kc2.text_input("Poznámka", value=poznamka_raw,
+                                         key=f"kor_p_{row['event_id']}")
+                kc3.write("")
+                kc3.write("")
+                if kc3.button("💾", key=f"kor_save_{row['event_id']}", help="Uložit"):
+                    ok = upravit_korekci(token, row["event_id"], new_litry, new_poz)
+                    if ok:
+                        st.success("Uloženo")
+                        st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
+                        st.rerun()
+                    else:
+                        st.error("Chyba při ukládání")
+                if kc3.button("🗑", key=f"kor_del_{row['event_id']}", help="Smazat"):
+                    ok = smazat_udalost(token, row["event_id"])
+                    if ok:
+                        st.success("Smazáno")
+                        del st.session_state["df"], st.session_state["nacteno_pro"]
+                        st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
+                        st.rerun()
+                    else:
+                        st.error("Chyba při mazání")
 
 with tab_admin:
     st.subheader("⚙️ Správa")

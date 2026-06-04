@@ -655,12 +655,14 @@ if not st.session_state.get("pin_ok"):
         pin = st.text_input("PIN", type="password", label_visibility="collapsed",
                             placeholder="PIN", autocomplete="current-password")
         if st.button("Vstoupit", type="primary", use_container_width=True):
-            spravny_pin = st.secrets.get("app", {}).get("pin", "")
-            if pin == spravny_pin:
+            spravny_pin  = st.secrets.get("app", {}).get("pin", "")
+            spravny_user = st.secrets.get("app", {}).get("username", "martver_user")
+            zadany_user  = st.session_state.get("_login_user", "")
+            if zadany_user == spravny_user and pin == spravny_pin:
                 st.session_state.pin_ok = True
                 st.rerun()
             else:
-                st.error("Nesprávný PIN")
+                st.error("Nesprávné přihlašovací údaje")
     st.stop()
 
 # --- Přihlášení ---

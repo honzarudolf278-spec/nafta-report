@@ -785,27 +785,30 @@ tab_t, tab_u, tab_spz, tab_kat, tab_d, tab_kor, tab_admin = st.tabs(
     ["🚗 Tankování", "👤 Uživatelé", "🔧 Vozidla & Spotřeba", "🏷 Kategorie", "🛢 Doplnění", "📋 Korekce", "⚙️ Správa"])
 
 with tab_t:
-    cols = ["datum","uzivatel","spz","kategorie","platba","litry","tachometr","zaplaceno"]
-    rename = {"datum":"Datum","uzivatel":"Uživatel","spz":"SPZ","kategorie":"Kategorie",
-              "platba":"Platba","litry":"Litry (L)","tachometr":"Tachometr (km)","zaplaceno":"Zaplaceno"}
-    _bt1, _bt2 = st.columns([1, 9])
-    if _bt1.button("☑ Vše", key="sa_t_on"):
-        st.session_state.sa_tank = True; st.rerun()
-    if _bt2.button("☐ Nic", key="sa_t_off"):
-        st.session_state.sa_tank = False; st.rerun()
-    df_t_disp = df_t[cols].rename(columns=rename).copy()
-    df_t_disp.insert(0, "☑", st.session_state.get("sa_tank", False))
-    edited_t = st.data_editor(df_t_disp, use_container_width=True, hide_index=True,
-                              column_config={"☑": st.column_config.CheckboxColumn("☑", width="small")})
-    ids_t = df_t[edited_t["☑"].values]["event_id"].tolist() if not df_t.empty else []
-    if ids_t:
-        if st.button(f"🗑 Smazat vybrané ({len(ids_t)})", type="primary", key="del_tank"):
-            with st.spinner("Mažu záznamy..."):
-                ok_count = sum(smazat_udalost(token, eid) for eid in ids_t)
-            st.success(f"Smazáno {ok_count} z {len(ids_t)} záznamů")
-            st.session_state.sa_tank = False
-            del st.session_state["df"], st.session_state["nacteno_pro"]
-            st.rerun()
+    if df_t.empty:
+        st.info("V daném období nejsou žádná tankování.")
+    else:
+        cols = ["datum","uzivatel","spz","kategorie","platba","litry","tachometr","zaplaceno"]
+        rename = {"datum":"Datum","uzivatel":"Uživatel","spz":"SPZ","kategorie":"Kategorie",
+                  "platba":"Platba","litry":"Litry (L)","tachometr":"Tachometr (km)","zaplaceno":"Zaplaceno"}
+        _bt1, _bt2 = st.columns([1, 9])
+        if _bt1.button("☑ Vše", key="sa_t_on"):
+            st.session_state.sa_tank = True; st.rerun()
+        if _bt2.button("☐ Nic", key="sa_t_off"):
+            st.session_state.sa_tank = False; st.rerun()
+        df_t_disp = df_t[cols].rename(columns=rename).copy()
+        df_t_disp.insert(0, "☑", st.session_state.get("sa_tank", False))
+        edited_t = st.data_editor(df_t_disp, use_container_width=True, hide_index=True,
+                                  column_config={"☑": st.column_config.CheckboxColumn("☑", width="small")})
+        ids_t = df_t[edited_t["☑"].values]["event_id"].tolist()
+        if ids_t:
+            if st.button(f"🗑 Smazat vybrané ({len(ids_t)})", type="primary", key="del_tank"):
+                with st.spinner("Mažu záznamy..."):
+                    ok_count = sum(smazat_udalost(token, eid) for eid in ids_t)
+                st.success(f"Smazáno {ok_count} z {len(ids_t)} záznamů")
+                st.session_state.sa_tank = False
+                del st.session_state["df"], st.session_state["nacteno_pro"]
+                st.rerun()
 
 with tab_u:
     if not df_t.empty:

@@ -612,7 +612,7 @@ def tank_gauge(level: float) -> go.Figure:
 
 # ── Streamlit UI ──────────────────────────────────────────────────────────────
 
-st.set_page_config(page_title="Nafta – přehled", layout="wide", page_icon="⛽")
+st.set_page_config(page_title="Nafta", layout="wide", page_icon="⛽")
 
 # --- PIN ochrana ---
 if not st.session_state.get("pin_ok"):
@@ -668,7 +668,7 @@ if "tank_level" not in st.session_state:
         st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
 
 # --- Hlavní stránka ---
-st.title("⛽ Nafta – přehled")
+st.title("⛽ Nafta")
 
 # Stav nádrže nahoře
 col_gauge, col_metrics = st.columns([1, 2])

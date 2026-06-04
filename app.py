@@ -215,22 +215,25 @@ def nacist_zamestnance_web(token: str) -> list[dict]:
                 break
     if not folder_id:
         return []
-    url = f"https://graph.microsoft.com/v1.0/me/contactFolders/{folder_id}/contacts?$select=id,displayName,givenName,surname,personalNotes"
+    url = f"https://graph.microsoft.com/v1.0/me/contactFolders/{folder_id}/contacts?$select=id,displayName,givenName,surname,title,personalNotes"
     r2 = requests.get(url, headers=_headers(token))
     if r2.status_code != 200:
         return []
     result = []
     for c in r2.json().get("value", []):
         notes = c.get("personalNotes", "")
-        pin_m   = re.search(r"Heslo:\s*(\S+)",                         notes)
+        pin_m   = re.search(r"Heslo:\s*(\S+)",                          notes)
         limit_m = re.search(r"proplácen[eé]:\s*(\d+)", notes, re.IGNORECASE)
-        spz_m   = re.search(r"SPZ:\s*([A-Z0-9 ]+)",   notes, re.IGNORECASE)
+        spz_m   = re.search(r"SPZ:\s*([A-Z0-9 ]+)",    notes, re.IGNORECASE)
         result.append({
-            "id":          c["id"],
-            "jmeno":       c.get("displayName", ""),
-            "pin":         pin_m.group(1)   if pin_m   else "",
-            "limit":       limit_m.group(1) if limit_m else "0",
-            "spz":         spz_m.group(1).strip().upper() if spz_m else "",
+            "id":       c["id"],
+            "jmeno":    c.get("displayName", ""),
+            "givenName":c.get("givenName", ""),
+            "surname":  c.get("surname", ""),
+            "title":    c.get("title", ""),
+            "pin":      pin_m.group(1)            if pin_m   else "",
+            "limit":    limit_m.group(1)          if limit_m else "0",
+            "spz":      spz_m.group(1).strip().upper() if spz_m else "",
         })
     return result
 
@@ -251,8 +254,8 @@ def pridat_zamestnance(token: str, jmeno: str, prijmeni: str, pin: str,
     )
     return r.status_code == 201
 
-def upravit_zamestnance(token: str, contact_id: str, jmeno: str, prijmeni: str,
-                        pin: str, limit: int, spz: str) -> bool:
+def upravit_zamestnance(token: str, contact_id: str, titul: str, jmeno: str,
+                        prijmeni: str, pin: str, limit: int, spz: str) -> bool:
     notes = f"Heslo: {pin}"
     if limit > 0:
         notes += f"\nproplácení: {limit}"
@@ -261,7 +264,8 @@ def upravit_zamestnance(token: str, contact_id: str, jmeno: str, prijmeni: str,
     r = requests.patch(
         f"https://graph.microsoft.com/v1.0/me/contacts/{contact_id}",
         headers={**_headers(token), "Content-Type": "application/json"},
-        json={"givenName": jmeno, "surname": prijmeni, "personalNotes": notes},
+        json={"title": titul, "givenName": jmeno, "surname": prijmeni,
+              "personalNotes": notes},
     )
     return r.status_code in (200, 204)
 
@@ -998,21 +1002,19 @@ with tab_admin:
     zam_list = st.session_state.zam_list
     if zam_list:
         for z in zam_list:
-            jmeno_parts = z["jmeno"].split(" ", 1)
-            z_jmeno = jmeno_parts[0] if jmeno_parts else ""
-            z_prijmeni = jmeno_parts[1] if len(jmeno_parts) > 1 else ""
             with st.expander(f"**{z['jmeno']}**  —  PIN: {'*' * len(z['pin'])}  |  Limit: {z['limit']} Kč"):
-                er1, er2 = st.columns(2)
-                new_jmeno    = er1.text_input("Jméno",    value=z_jmeno,    key=f"jm_{z['id']}")
-                new_prijmeni = er2.text_input("Příjmení", value=z_prijmeni, key=f"pr_{z['id']}")
+                er1, er2, er3 = st.columns([1, 2, 2])
+                new_titul    = er1.text_input("Titul",    value=z.get("title", ""),    key=f"ti_{z['id']}", placeholder="Ing.")
+                new_jmeno    = er2.text_input("Jméno",    value=z.get("givenName", ""), key=f"jm_{z['id']}")
+                new_prijmeni = er3.text_input("Příjmení", value=z.get("surname", ""),   key=f"pr_{z['id']}")
                 ec1, ec2, ec3, ec4 = st.columns([2, 2, 2, 1])
-                new_pin   = ec1.text_input("PIN",        value=z["pin"],              key=f"pin_{z['id']}")
-                new_limit = ec2.number_input("Limit (Kč)", value=int(z["limit"] or 0), min_value=0, step=100, key=f"lim_{z['id']}")
-                new_spz   = ec3.text_input("Pref. SPZ",  value=z["spz"],              key=f"spz_{z['id']}")
+                new_pin   = ec1.text_input("PIN",          value=z["pin"],               key=f"pin_{z['id']}")
+                new_limit = ec2.number_input("Limit (Kč)", value=int(z["limit"] or 0),   min_value=0, step=100, key=f"lim_{z['id']}")
+                new_spz   = ec3.text_input("Pref. SPZ",    value=z["spz"],               key=f"spz_{z['id']}")
                 ec4.write("")
                 ec4.write("")
                 if ec4.button("💾", key=f"save_{z['id']}", help="Uložit změny"):
-                    ok = upravit_zamestnance(token, z["id"], new_jmeno, new_prijmeni, new_pin, new_limit, new_spz)
+                    ok = upravit_zamestnance(token, z["id"], new_titul, new_jmeno, new_prijmeni, new_pin, new_limit, new_spz)
                     if ok:
                         st.success("Uloženo")
                         st.session_state.zam_list = nacist_zamestnance_web(token)

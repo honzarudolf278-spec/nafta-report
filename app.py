@@ -736,7 +736,7 @@ dluhy = df_t[
     (df_t["platba"] == "Na dluh") &
     (~df_t["zaplaceno"].fillna(False)) &
     (~df_t["event_id"].isin(_paid))
-].copy()
+].copy() if not df_t.empty else pd.DataFrame()
 ceny_df = st.session_state.get("ceny_df", pd.DataFrame(columns=["datum", "cena_za_litr"]))
 
 if not dluhy.empty:

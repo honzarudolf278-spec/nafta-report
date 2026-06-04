@@ -720,12 +720,10 @@ with col_metrics:
 
 if df.empty:
     st.warning("V daném období nejsou žádné záznamy.")
-    st.stop()
-
-# --- Excel export ---
-st.download_button("⬇ Stáhnout Excel", data=to_excel(df, st.session_state.get("df_tank_vse")),
-    file_name=f"nafta_{date_from}_{date_to}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+else:
+    st.download_button("⬇ Stáhnout Excel", data=to_excel(df, st.session_state.get("df_tank_vse")),
+        file_name=f"nafta_{date_from}_{date_to}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 st.divider()
 

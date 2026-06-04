@@ -237,8 +237,8 @@ def nacist_zamestnance_web(token: str) -> list[dict]:
         })
     return result
 
-def pridat_zamestnance(token: str, jmeno: str, prijmeni: str, pin: str,
-                       limit: int, spz: str) -> bool:
+def pridat_zamestnance(token: str, titul: str, jmeno: str, prijmeni: str,
+                       pin: str, limit: int, spz: str) -> bool:
     folder_id = _get_or_create_contact_folder(token, "Zaměstnanci")
     if not folder_id:
         return False
@@ -250,7 +250,8 @@ def pridat_zamestnance(token: str, jmeno: str, prijmeni: str, pin: str,
     r = requests.post(
         f"https://graph.microsoft.com/v1.0/me/contactFolders/{folder_id}/contacts",
         headers={**_headers(token), "Content-Type": "application/json"},
-        json={"givenName": jmeno, "surname": prijmeni, "personalNotes": notes},
+        json={"title": titul, "givenName": jmeno, "surname": prijmeni,
+              "personalNotes": notes},
     )
     return r.status_code == 201
 
@@ -1035,7 +1036,8 @@ with tab_admin:
 
     st.markdown("#### ➕ Přidat uživatele")
     with st.form("novy_zamestnanec"):
-        fc1, fc2 = st.columns(2)
+        fc0, fc1, fc2 = st.columns([1, 2, 2])
+        n_titul   = fc0.text_input("Titul", placeholder="Ing.")
         n_jmeno   = fc1.text_input("Jméno *")
         n_prijmeni= fc2.text_input("Příjmení *")
         fc3, fc4, fc5 = st.columns(3)
@@ -1048,7 +1050,7 @@ with tab_admin:
                 st.error("Jméno, příjmení a PIN jsou povinné.")
             else:
                 with st.spinner("Ukládám..."):
-                    ok = pridat_zamestnance(token, n_jmeno, n_prijmeni, n_pin, n_limit, n_spz)
+                    ok = pridat_zamestnance(token, n_titul, n_jmeno, n_prijmeni, n_pin, n_limit, n_spz)
                 if ok:
                     st.success(f"Uživatel {n_jmeno} {n_prijmeni} přidán.")
                     st.session_state.zam_list = nacist_zamestnance_web(token)

@@ -251,8 +251,8 @@ def pridat_zamestnance(token: str, jmeno: str, prijmeni: str, pin: str,
     )
     return r.status_code == 201
 
-def upravit_zamestnance(token: str, contact_id: str, pin: str,
-                        limit: int, spz: str) -> bool:
+def upravit_zamestnance(token: str, contact_id: str, jmeno: str, prijmeni: str,
+                        pin: str, limit: int, spz: str) -> bool:
     notes = f"Heslo: {pin}"
     if limit > 0:
         notes += f"\nproplácení: {limit}"
@@ -261,7 +261,7 @@ def upravit_zamestnance(token: str, contact_id: str, pin: str,
     r = requests.patch(
         f"https://graph.microsoft.com/v1.0/me/contacts/{contact_id}",
         headers={**_headers(token), "Content-Type": "application/json"},
-        json={"personalNotes": notes},
+        json={"givenName": jmeno, "surname": prijmeni, "personalNotes": notes},
     )
     return r.status_code in (200, 204)
 
@@ -786,8 +786,13 @@ with tab_t:
     cols = ["datum","uzivatel","spz","kategorie","platba","litry","tachometr","zaplaceno"]
     rename = {"datum":"Datum","uzivatel":"Uživatel","spz":"SPZ","kategorie":"Kategorie",
               "platba":"Platba","litry":"Litry (L)","tachometr":"Tachometr (km)","zaplaceno":"Zaplaceno"}
+    _bt1, _bt2 = st.columns([1, 9])
+    if _bt1.button("☑ Vše", key="sa_t_on"):
+        st.session_state.sa_tank = True; st.rerun()
+    if _bt2.button("☐ Nic", key="sa_t_off"):
+        st.session_state.sa_tank = False; st.rerun()
     df_t_disp = df_t[cols].rename(columns=rename).copy()
-    df_t_disp.insert(0, "☑", False)
+    df_t_disp.insert(0, "☑", st.session_state.get("sa_tank", False))
     edited_t = st.data_editor(df_t_disp, use_container_width=True, hide_index=True,
                               column_config={"☑": st.column_config.CheckboxColumn("☑", width="small")})
     ids_t = df_t[edited_t["☑"].values]["event_id"].tolist() if not df_t.empty else []
@@ -796,6 +801,7 @@ with tab_t:
             with st.spinner("Mažu záznamy..."):
                 ok_count = sum(smazat_udalost(token, eid) for eid in ids_t)
             st.success(f"Smazáno {ok_count} z {len(ids_t)} záznamů")
+            st.session_state.sa_tank = False
             del st.session_state["df"], st.session_state["nacteno_pro"]
             st.rerun()
 
@@ -852,10 +858,15 @@ with tab_kat:
 
 with tab_d:
     if not df_d.empty:
+        _bd1, _bd2 = st.columns([1, 9])
+        if _bd1.button("☑ Vše", key="sa_d_on"):
+            st.session_state.sa_dopl = True; st.rerun()
+        if _bd2.button("☐ Nic", key="sa_d_off"):
+            st.session_state.sa_dopl = False; st.rerun()
         df_d_disp = df_d[["datum","litry","cena_za_litr","celkem_kc"]].rename(columns={
             "datum":"Datum","litry":"Litry (L)",
             "cena_za_litr":"Cena/L (Kč)","celkem_kc":"Celkem (Kč)"}).copy()
-        df_d_disp.insert(0, "☑", False)
+        df_d_disp.insert(0, "☑", st.session_state.get("sa_dopl", False))
         edited_d = st.data_editor(df_d_disp, use_container_width=True, hide_index=True,
                                   column_config={"☑": st.column_config.CheckboxColumn("☑", width="small")})
         ids_d = df_d[edited_d["☑"].values]["event_id"].tolist()
@@ -864,6 +875,7 @@ with tab_d:
                 with st.spinner("Mažu záznamy..."):
                     ok_count = sum(smazat_udalost(token, eid) for eid in ids_d)
                 st.success(f"Smazáno {ok_count} z {len(ids_d)} záznamů")
+                st.session_state.sa_dopl = False
                 del st.session_state["df"], st.session_state["nacteno_pro"]
                 st.rerun()
         c1, c2, c3 = st.columns(3)
@@ -872,59 +884,64 @@ with tab_d:
         c3.metric("Celkem zaplaceno", f"{df_d['celkem_kc'].sum():.0f} Kč")
 
 with tab_kor:
-    # Korekce ze všech historických dat
-    df_kor_vse = st.session_state.get("df_tank_vse")
-    df_kor = pd.DataFrame()
-    if df_kor_vse is not None and not df_kor_vse.empty:
-        # df_tank_vse obsahuje jen tankování — musíme sáhnout do plného df
-        pass
-    # Načteme korekce z aktuálního df (pokud jsou v období)
-    if not df.empty and "typ" in df.columns:
-        df_kor = df[df["typ"] == "Korekce"].sort_values("datum", ascending=False).reset_index(drop=True)
-
-    # Pokud nejsou v aktuálním období, načteme historické (get_tank_info volá všechny eventy)
-    if df_kor.empty:
+    # Načteme korekce vždy z celé historie
+    if "df_kor_cache" not in st.session_state:
         with st.spinner("Načítám korekce..."):
-            cal_id = get_calendar_id(token)
-            all_ev = fetch_events(token, cal_id, date(2020, 1, 1), date.today())
-            df_all = parse_events(all_ev)
-            if not df_all.empty and "typ" in df_all.columns:
-                df_kor = df_all[df_all["typ"] == "Korekce"].sort_values("datum", ascending=False).reset_index(drop=True)
+            _cal = get_calendar_id(token)
+            _all_ev = fetch_events(token, _cal, date(2020, 1, 1), date.today())
+            _df_all = parse_events(_all_ev)
+            st.session_state.df_kor_cache = (
+                _df_all[_df_all["typ"] == "Korekce"].sort_values("datum", ascending=False).reset_index(drop=True)
+                if not _df_all.empty else pd.DataFrame()
+            )
+    df_kor = st.session_state.df_kor_cache
 
     if df_kor.empty:
         st.info("Zatím žádné korekce.")
     else:
-        st.caption(f"Celkem korekcí: {len(df_kor)}")
+        # Tlačítka Označit vše / Nic
+        _bk1, _bk2 = st.columns([1, 9])
+        if _bk1.button("☑ Vše", key="sa_k_on"):
+            st.session_state.sa_kor = True; st.rerun()
+        if _bk2.button("☐ Nic", key="sa_k_off"):
+            st.session_state.sa_kor = False; st.rerun()
+
+        # Tabulka se zaškrtávacím sloupcem
+        df_kor_disp = df_kor[["datum","litry"]].rename(columns={"datum":"Datum","litry":"Litry (L)"}).copy()
+        df_kor_disp["Poznámka"] = df_kor["body_raw"].apply(
+            lambda b: _find(r"Poznámka:\s*([^\n]+)", _clean(b)) or "")
+        df_kor_disp.insert(0, "☑", st.session_state.get("sa_kor", False))
+        edited_k = st.data_editor(df_kor_disp, use_container_width=True, hide_index=True,
+                                  column_config={"☑": st.column_config.CheckboxColumn("☑", width="small")})
+        ids_k = df_kor[edited_k["☑"].values]["event_id"].tolist()
+        if ids_k:
+            if st.button(f"🗑 Smazat vybrané ({len(ids_k)})", type="primary", key="del_kor"):
+                with st.spinner("Mažu..."):
+                    ok_count = sum(smazat_udalost(token, eid) for eid in ids_k)
+                st.success(f"Smazáno {ok_count} z {len(ids_k)}")
+                st.session_state.sa_kor = False
+                del st.session_state["df_kor_cache"], st.session_state["nacteno_pro"]
+                st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
+                st.rerun()
+
+        st.divider()
+        st.markdown("**Upravit korekci:**")
         for _, row in df_kor.iterrows():
-            poznamka_raw = _find(r"Poznámka:\s*([^\n]+)", _clean(row["body_raw"])) or ""
-            label = f"**{row['datum']}** — {row['litry']:.0f} L" + (f" — {poznamka_raw}" if poznamka_raw else "")
-            with st.expander(label):
+            poz = _find(r"Poznámka:\s*([^\n]+)", _clean(row["body_raw"])) or ""
+            with st.expander(f"{row['datum']} — {row['litry']:.0f} L" + (f" — {poz}" if poz else "")):
                 kc1, kc2, kc3 = st.columns([2, 3, 1])
-                new_litry = kc1.number_input(
-                    "Litry", min_value=0.0, max_value=float(KAPACITA_NADRZE),
-                    value=float(row["litry"] or 0), step=50.0, format="%.0f",
-                    key=f"kor_l_{row['event_id']}")
-                new_poz = kc2.text_input("Poznámka", value=poznamka_raw,
-                                         key=f"kor_p_{row['event_id']}")
-                kc3.write("")
-                kc3.write("")
-                if kc3.button("💾", key=f"kor_save_{row['event_id']}", help="Uložit"):
-                    ok = upravit_korekci(token, row["event_id"], new_litry, new_poz)
-                    if ok:
-                        st.success("Uloženo")
+                new_l = kc1.number_input("Litry", 0.0, float(KAPACITA_NADRZE),
+                                         float(row["litry"] or 0), 50.0, "%.0f",
+                                         key=f"kor_l_{row['event_id']}")
+                new_p = kc2.text_input("Poznámka", value=poz, key=f"kor_p_{row['event_id']}")
+                kc3.write(""); kc3.write("")
+                if kc3.button("💾", key=f"kor_s_{row['event_id']}"):
+                    if upravit_korekci(token, row["event_id"], new_l, new_p):
+                        del st.session_state["df_kor_cache"]
                         st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
                         st.rerun()
                     else:
-                        st.error("Chyba při ukládání")
-                if kc3.button("🗑", key=f"kor_del_{row['event_id']}", help="Smazat"):
-                    ok = smazat_udalost(token, row["event_id"])
-                    if ok:
-                        st.success("Smazáno")
-                        del st.session_state["df"], st.session_state["nacteno_pro"]
-                        st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
-                        st.rerun()
-                    else:
-                        st.error("Chyba při mazání")
+                        st.error("Chyba")
 
 with tab_admin:
     st.subheader("⚙️ Správa")
@@ -981,15 +998,21 @@ with tab_admin:
     zam_list = st.session_state.zam_list
     if zam_list:
         for z in zam_list:
+            jmeno_parts = z["jmeno"].split(" ", 1)
+            z_jmeno = jmeno_parts[0] if jmeno_parts else ""
+            z_prijmeni = jmeno_parts[1] if len(jmeno_parts) > 1 else ""
             with st.expander(f"**{z['jmeno']}**  —  PIN: {'*' * len(z['pin'])}  |  Limit: {z['limit']} Kč"):
+                er1, er2 = st.columns(2)
+                new_jmeno    = er1.text_input("Jméno",    value=z_jmeno,    key=f"jm_{z['id']}")
+                new_prijmeni = er2.text_input("Příjmení", value=z_prijmeni, key=f"pr_{z['id']}")
                 ec1, ec2, ec3, ec4 = st.columns([2, 2, 2, 1])
-                new_pin   = ec1.text_input("Nový PIN",   value=z["pin"],   key=f"pin_{z['id']}")
+                new_pin   = ec1.text_input("PIN",        value=z["pin"],              key=f"pin_{z['id']}")
                 new_limit = ec2.number_input("Limit (Kč)", value=int(z["limit"] or 0), min_value=0, step=100, key=f"lim_{z['id']}")
-                new_spz   = ec3.text_input("Pref. SPZ",  value=z["spz"],   key=f"spz_{z['id']}")
+                new_spz   = ec3.text_input("Pref. SPZ",  value=z["spz"],              key=f"spz_{z['id']}")
                 ec4.write("")
                 ec4.write("")
                 if ec4.button("💾", key=f"save_{z['id']}", help="Uložit změny"):
-                    ok = upravit_zamestnance(token, z["id"], new_pin, new_limit, new_spz)
+                    ok = upravit_zamestnance(token, z["id"], new_jmeno, new_prijmeni, new_pin, new_limit, new_spz)
                     if ok:
                         st.success("Uloženo")
                         st.session_state.zam_list = nacist_zamestnance_web(token)

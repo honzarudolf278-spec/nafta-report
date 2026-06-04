@@ -11,7 +11,7 @@ import plotly.graph_objects as go
 # ── Konfigurace ───────────────────────────────────────────────────────────────
 CLIENT_ID  = "9c5552a6-4492-4e81-b96b-d1ea74abb8ed"
 AUTHORITY  = "https://login.microsoftonline.com/consumers/oauth2/v2.0"
-SCOPES     = "Calendars.ReadWrite offline_access"
+SCOPES     = "Calendars.ReadWrite Contacts.ReadWrite offline_access"
 TOKEN_FILE = "nafta_token.json"
 KAPACITA_NADRZE = 7000  # litrů
 
@@ -185,6 +185,113 @@ def mark_as_paid(token: str, event_id: str, body_raw: str) -> bool:
             )
     return r.status_code in (200, 204)
 
+# ── Správa kontaktů ───────────────────────────────────────────────────────────
+
+def _get_or_create_contact_folder(token: str, name: str) -> str | None:
+    """Vrátí ID složky kontaktů dle názvu, nebo ji vytvoří."""
+    r = requests.get("https://graph.microsoft.com/v1.0/me/contactFolders",
+                     headers=_headers(token))
+    if r.status_code == 200:
+        for f in r.json().get("value", []):
+            if f["displayName"].lower() == name.lower():
+                return f["id"]
+    # Vytvoř složku
+    r2 = requests.post("https://graph.microsoft.com/v1.0/me/contactFolders",
+                       headers={**_headers(token), "Content-Type": "application/json"},
+                       json={"displayName": name})
+    if r2.status_code == 201:
+        return r2.json()["id"]
+    return None
+
+def nacist_zamestnance_web(token: str) -> list[dict]:
+    """Načte zaměstnance ze složky Zaměstnanci (pro webové rozhraní)."""
+    r = requests.get("https://graph.microsoft.com/v1.0/me/contactFolders",
+                     headers=_headers(token))
+    folder_id = None
+    if r.status_code == 200:
+        for f in r.json().get("value", []):
+            if f["displayName"].lower() == "zaměstnanci":
+                folder_id = f["id"]
+                break
+    if not folder_id:
+        return []
+    url = f"https://graph.microsoft.com/v1.0/me/contactFolders/{folder_id}/contacts?$select=id,displayName,givenName,surname,personalNotes"
+    r2 = requests.get(url, headers=_headers(token))
+    if r2.status_code != 200:
+        return []
+    result = []
+    for c in r2.json().get("value", []):
+        notes = c.get("personalNotes", "")
+        pin_m   = re.search(r"Heslo:\s*(\S+)",                         notes)
+        limit_m = re.search(r"proplácen[eé]:\s*(\d+)", notes, re.IGNORECASE)
+        spz_m   = re.search(r"SPZ:\s*([A-Z0-9 ]+)",   notes, re.IGNORECASE)
+        result.append({
+            "id":          c["id"],
+            "jmeno":       c.get("displayName", ""),
+            "pin":         pin_m.group(1)   if pin_m   else "",
+            "limit":       limit_m.group(1) if limit_m else "0",
+            "spz":         spz_m.group(1).strip().upper() if spz_m else "",
+        })
+    return result
+
+def pridat_zamestnance(token: str, jmeno: str, prijmeni: str, pin: str,
+                       limit: int, spz: str) -> bool:
+    folder_id = _get_or_create_contact_folder(token, "Zaměstnanci")
+    if not folder_id:
+        return False
+    notes = f"Heslo: {pin}"
+    if limit > 0:
+        notes += f"\nproplácení: {limit}"
+    if spz:
+        notes += f"\nSPZ: {spz.upper()}"
+    r = requests.post(
+        f"https://graph.microsoft.com/v1.0/me/contactFolders/{folder_id}/contacts",
+        headers={**_headers(token), "Content-Type": "application/json"},
+        json={"givenName": jmeno, "surname": prijmeni, "personalNotes": notes},
+    )
+    return r.status_code == 201
+
+def upravit_zamestnance(token: str, contact_id: str, pin: str,
+                        limit: int, spz: str) -> bool:
+    notes = f"Heslo: {pin}"
+    if limit > 0:
+        notes += f"\nproplácení: {limit}"
+    if spz:
+        notes += f"\nSPZ: {spz.upper()}"
+    r = requests.patch(
+        f"https://graph.microsoft.com/v1.0/me/contacts/{contact_id}",
+        headers={**_headers(token), "Content-Type": "application/json"},
+        json={"personalNotes": notes},
+    )
+    return r.status_code in (200, 204)
+
+def smazat_zamestnance(token: str, contact_id: str) -> bool:
+    r = requests.delete(f"https://graph.microsoft.com/v1.0/me/contacts/{contact_id}",
+                        headers=_headers(token))
+    return r.status_code == 204
+
+# ── Korekce nádrže ────────────────────────────────────────────────────────────
+
+def ulozit_korekci_nadrze(token: str, litry: float, poznamka: str = "") -> bool:
+    cal_id = get_calendar_id(token)
+    url = (f"https://graph.microsoft.com/v1.0/me/calendars/{cal_id}/events"
+           if cal_id else "https://graph.microsoft.com/v1.0/me/events")
+    now = datetime.now()
+    popis = f"Litry: {litry} L"
+    if poznamka:
+        popis += f"\nPoznámka: {poznamka}"
+    r = requests.post(
+        url,
+        headers={**_headers(token), "Content-Type": "application/json"},
+        json={
+            "subject": f"Korekce nádrže: {litry:.0f} L",
+            "body": {"contentType": "text", "content": popis},
+            "start": {"dateTime": now.isoformat(), "timeZone": "Europe/Prague"},
+            "end":   {"dateTime": now.replace(minute=now.minute+1).isoformat(), "timeZone": "Europe/Prague"},
+        },
+    )
+    return r.status_code == 201
+
 def get_tank_info(token: str) -> tuple:
     """Vrátí (stav_nadrze, ceny_df, df_tankování_vse) ze všech historických záznamů."""
     cal_id = get_calendar_id(token)
@@ -196,11 +303,21 @@ def get_tank_info(token: str) -> tuple:
         return 0.0, empty_ceny, empty_tank
     df_d = df[df["typ"] == "Doplnění"]
     df_t = df[df["typ"] == "Tankování"]
+    df_k = df[df["typ"] == "Korekce"]
+    # Pokud existuje korekce, použij poslední jako výchozí bod
+    if not df_k.empty:
+        last_k = df_k.sort_values("datum").iloc[-1]
+        baseline = float(last_k["litry"] or 0.0)
+        cutoff   = last_k["datum"]
+        df_d = df_d[df_d["datum"] > cutoff]
+        df_t = df_t[df_t["datum"] > cutoff]
+    else:
+        baseline = 0.0
     doplneno = df_d["litry"].sum()
     odebrano = df_t["litry"].sum()
-    level = max(0.0, doplneno - odebrano)
-    ceny = df_d[["datum", "cena_za_litr"]].dropna(subset=["cena_za_litr"]).sort_values("datum").reset_index(drop=True)
-    return level, ceny, df_t.reset_index(drop=True)
+    level = max(0.0, baseline + doplneno - odebrano)
+    ceny = df[df["typ"] == "Doplnění"][["datum", "cena_za_litr"]].dropna(subset=["cena_za_litr"]).sort_values("datum").reset_index(drop=True)
+    return level, ceny, df[df["typ"] == "Tankování"].reset_index(drop=True)
 
 def _cena_pro_datum(ceny_df: pd.DataFrame, datum) -> float | None:
     """Cena za litr z posledního Doplnění na nebo před daným datem."""
@@ -260,6 +377,17 @@ def parse_events(events: list) -> pd.DataFrame:
                 "cena_za_litr": None, "celkem_kc": None,
                 "tachometr": _find(r"Stav tachometru:\s*(\d+)\s*km", body, int),
                 "zaplaceno": zaplaceno,
+            })
+
+        elif subj.startswith("Korekce nádrže:"):
+            litry_subj = _find(r"Korekce nádrže:\s*([\d.,]+)", subj, float)
+            rows.append({
+                "event_id": event_id, "body_raw": body_raw,
+                "datum": dt, "typ": "Korekce",
+                "uzivatel": None, "spz": None, "kategorie": None, "platba": None,
+                "litry": litry_subj or _find(r"Litry:\s*([\d.,]+)\s*L", body, float),
+                "cena_za_litr": None, "celkem_kc": None,
+                "tachometr": None, "zaplaceno": None,
             })
 
     if not rows:
@@ -544,8 +672,8 @@ if not dluhy.empty:
     st.divider()
 
 # ── TABY ─────────────────────────────────────────────────────────────────────
-tab_t, tab_u, tab_spz, tab_kat, tab_d = st.tabs(
-    ["🚗 Tankování", "👤 Uživatelé", "🔧 Vozidla & Spotřeba", "🏷 Kategorie", "🛢 Doplnění"])
+tab_t, tab_u, tab_spz, tab_kat, tab_d, tab_admin = st.tabs(
+    ["🚗 Tankování", "👤 Uživatelé", "🔧 Vozidla & Spotřeba", "🏷 Kategorie", "🛢 Doplnění", "⚙️ Správa"])
 
 with tab_t:
     cols = ["datum","uzivatel","spz","kategorie","platba","litry","tachometr","zaplaceno"]
@@ -615,3 +743,107 @@ with tab_d:
         c1.metric("Celkem doplněno", f"{df_d['litry'].sum():.1f} L")
         c2.metric("Průměrná cena/L", f"{df_d['cena_za_litr'].mean():.2f} Kč")
         c3.metric("Celkem zaplaceno", f"{df_d['celkem_kc'].sum():.0f} Kč")
+
+with tab_admin:
+    st.subheader("⚙️ Správa")
+
+    # ── Korekce nádrže ────────────────────────────────────────────────────────
+    st.markdown("### 🛢 Korekce stavu nádrže")
+    st.caption(f"Kapacita nádrže: {KAPACITA_NADRZE} L &nbsp;|&nbsp; Aktuální stav: {st.session_state.tank_level:.0f} L")
+
+    col_k1, col_k2 = st.columns([2, 1])
+    with col_k1:
+        korekce_litry = st.number_input(
+            "Nastavit skutečný stav nádrže na (litrů):",
+            min_value=0.0, max_value=float(KAPACITA_NADRZE),
+            value=0.0, step=50.0, format="%.0f"
+        )
+        korekce_poznamka = st.text_input("Poznámka (volitelné)", placeholder="např. Fyzická kontrola nádrže")
+    with col_k2:
+        st.write("")
+        st.write("")
+        if st.button("💾 Uložit korekci", type="primary"):
+            with st.spinner("Ukládám..."):
+                ok = ulozit_korekci_nadrze(token, korekce_litry, korekce_poznamka)
+            if ok:
+                st.success(f"Stav nádrže nastaven na {korekce_litry:.0f} L")
+                del st.session_state["nacteno_pro"]
+                st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
+                st.rerun()
+            else:
+                st.error("Nepodařilo se uložit.")
+        if st.button("🚫 Prázdná nádrž (0 L)"):
+            with st.spinner("Ukládám..."):
+                ok = ulozit_korekci_nadrze(token, 0.0, "Prázdná nádrž")
+            if ok:
+                st.success("Stav nádrže nastaven na 0 L")
+                del st.session_state["nacteno_pro"]
+                st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
+                st.rerun()
+            else:
+                st.error("Nepodařilo se uložit.")
+
+    st.divider()
+
+    # ── Správa uživatelů ──────────────────────────────────────────────────────
+    st.markdown("### 👥 Správa uživatelů")
+
+    if "zam_list" not in st.session_state:
+        with st.spinner("Načítám uživatele..."):
+            st.session_state.zam_list = nacist_zamestnance_web(token)
+
+    if st.button("🔄 Obnovit seznam"):
+        with st.spinner("Načítám..."):
+            st.session_state.zam_list = nacist_zamestnance_web(token)
+
+    zam_list = st.session_state.zam_list
+    if zam_list:
+        for z in zam_list:
+            with st.expander(f"**{z['jmeno']}**  —  PIN: {'*' * len(z['pin'])}  |  Limit: {z['limit']} Kč"):
+                ec1, ec2, ec3, ec4 = st.columns([2, 2, 2, 1])
+                new_pin   = ec1.text_input("Nový PIN",   value=z["pin"],   key=f"pin_{z['id']}")
+                new_limit = ec2.number_input("Limit (Kč)", value=int(z["limit"] or 0), min_value=0, step=100, key=f"lim_{z['id']}")
+                new_spz   = ec3.text_input("Pref. SPZ",  value=z["spz"],   key=f"spz_{z['id']}")
+                ec4.write("")
+                ec4.write("")
+                if ec4.button("💾", key=f"save_{z['id']}", help="Uložit změny"):
+                    ok = upravit_zamestnance(token, z["id"], new_pin, new_limit, new_spz)
+                    if ok:
+                        st.success("Uloženo")
+                        st.session_state.zam_list = nacist_zamestnance_web(token)
+                        st.rerun()
+                    else:
+                        st.error("Chyba při ukládání")
+                if ec4.button("🗑", key=f"del_{z['id']}", help="Smazat uživatele"):
+                    ok = smazat_zamestnance(token, z["id"])
+                    if ok:
+                        st.success("Smazáno")
+                        st.session_state.zam_list = nacist_zamestnance_web(token)
+                        st.rerun()
+                    else:
+                        st.error("Chyba při mazání")
+    else:
+        st.info("Složka Zaměstnanci je prázdná nebo nebyla nalezena.")
+
+    st.markdown("#### ➕ Přidat uživatele")
+    with st.form("novy_zamestnanec"):
+        fc1, fc2 = st.columns(2)
+        n_jmeno   = fc1.text_input("Jméno *")
+        n_prijmeni= fc2.text_input("Příjmení *")
+        fc3, fc4, fc5 = st.columns(3)
+        n_pin     = fc3.text_input("PIN *")
+        n_limit   = fc4.number_input("Limit proplácení (Kč)", min_value=0, step=100)
+        n_spz     = fc5.text_input("Preferovaná SPZ")
+        submitted = st.form_submit_button("Přidat", type="primary")
+        if submitted:
+            if not n_jmeno or not n_prijmeni or not n_pin:
+                st.error("Jméno, příjmení a PIN jsou povinné.")
+            else:
+                with st.spinner("Ukládám..."):
+                    ok = pridat_zamestnance(token, n_jmeno, n_prijmeni, n_pin, n_limit, n_spz)
+                if ok:
+                    st.success(f"Uživatel {n_jmeno} {n_prijmeni} přidán.")
+                    st.session_state.zam_list = nacist_zamestnance_web(token)
+                    st.rerun()
+                else:
+                    st.error("Nepodařilo se přidat uživatele. Zkontrolujte oprávnění (Contacts.ReadWrite).")

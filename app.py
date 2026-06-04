@@ -165,6 +165,31 @@ def fetch_events(token: str, cal_id: str | None, date_from: date, date_to: date)
         params = None
     return events
 
+def _patch_event(token: str, event_id: str, subject: str, body: str) -> bool:
+    payload = {"subject": subject, "body": {"contentType": "text", "content": body}}
+    r = requests.patch(f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+                       headers={**_headers(token), "Content-Type": "application/json"}, json=payload)
+    if r.status_code == 401:
+        t2 = get_valid_token()
+        if t2:
+            r = requests.patch(f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+                               headers={**_headers(t2), "Content-Type": "application/json"}, json=payload)
+    return r.status_code in (200, 204)
+
+def upravit_tankovani(token: str, event_id: str, uzivatel: str, spz: str, kategorie: str,
+                      platba: str, litry: float, tachometr, body_raw: str) -> bool:
+    zaplaceno_radek = "\nZaplaceno: Ano" if re.search(r"Zaplaceno:\s*Ano", body_raw) else ""
+    popis = (f"Uživatel: {uzivatel}\nSPZ: {spz}\nKategorie: {kategorie}\n"
+             f"Platba: {platba}\nLitry: {litry} L")
+    if tachometr: popis += f"\nStav tachometru: {int(tachometr)} km"
+    popis += zaplaceno_radek
+    return _patch_event(token, event_id, f"Tankování nafty: {spz} - {litry:.1f} L", popis)
+
+def upravit_doplneni(token: str, event_id: str, litry: float, cena: float) -> bool:
+    celkem = litry * cena
+    popis = f"Litry: {litry} L\nCena za litr: {cena} Kč\nCelkem: {celkem:.2f} Kč"
+    return _patch_event(token, event_id, f"Doplnění nafty: {litry:.1f} L", popis)
+
 def mark_as_paid(token: str, event_id: str, body_raw: str) -> bool:
     # Nepřidávej duplicitně
     if re.search(r"Zaplaceno:\s*Ano", body_raw):
@@ -811,6 +836,33 @@ with tab_t:
                 del st.session_state["df"], st.session_state["nacteno_pro"]
                 st.rerun()
 
+        if len(ids_t) == 1:
+            row_t = df_t[df_t["event_id"] == ids_t[0]].iloc[0]
+            with st.expander("✏️ Upravit vybraný záznam"):
+                ec1, ec2, ec3 = st.columns(3)
+                et_uziv  = ec1.text_input("Uživatel", value=str(row_t["uzivatel"] or ""), key="et_uz")
+                et_spz   = ec2.text_input("SPZ", value=str(row_t["spz"] or ""), key="et_spz")
+                et_litry = ec3.number_input("Litry (L)", value=float(row_t["litry"] or 0), min_value=0.0, step=0.5, key="et_l")
+                ec4, ec5, ec6 = st.columns(3)
+                kat_options = ['Služební', 'Osobní proplacené', 'Osobní neproplácené', 'Ostatní']
+                plat_options = ['Firma', 'Hotově', 'Na dluh', 'QR platba']
+                et_kat   = ec4.selectbox("Kategorie", kat_options,
+                    index=kat_options.index(row_t["kategorie"]) if row_t["kategorie"] in kat_options else 0, key="et_kat")
+                et_plat  = ec5.selectbox("Platba", plat_options,
+                    index=plat_options.index(row_t["platba"]) if row_t["platba"] in plat_options else 0, key="et_pl")
+                et_tach  = ec6.text_input("Tachometr (km)", value=str(int(row_t["tachometr"])) if pd.notna(row_t["tachometr"]) else "", key="et_tach")
+                if st.button("💾 Uložit změny", key="et_save"):
+                    with st.spinner("Ukládám..."):
+                        ok = upravit_tankovani(token, ids_t[0], et_uziv, et_spz, et_kat, et_plat,
+                                               et_litry, et_tach or None, row_t["body_raw"])
+                    if ok:
+                        st.success("Uloženo")
+                        st.session_state.sa_tank = False
+                        del st.session_state["df"], st.session_state["nacteno_pro"]
+                        st.rerun()
+                    else:
+                        st.error("Chyba při ukládání")
+
 with tab_u:
     if not df_t.empty:
         grp = df_t.groupby("uzivatel")["litry"].agg(Tankování="count", Litry="sum").reset_index()
@@ -889,6 +941,25 @@ with tab_d:
                 st.session_state.sa_dopl = False
                 del st.session_state["df"], st.session_state["nacteno_pro"]
                 st.rerun()
+
+        if len(ids_d) == 1:
+            row_d = df_d[df_d["event_id"] == ids_d[0]].iloc[0]
+            with st.expander("✏️ Upravit vybraný záznam"):
+                dc1, dc2 = st.columns(2)
+                ed_litry = dc1.number_input("Litry (L)", value=float(row_d["litry"] or 0), min_value=0.0, step=1.0, key="ed_l")
+                ed_cena  = dc2.number_input("Cena za litr (Kč)", value=float(row_d["cena_za_litr"] or 0), min_value=0.0, step=0.1, format="%.2f", key="ed_c")
+                if st.button("💾 Uložit změny", key="ed_save"):
+                    with st.spinner("Ukládám..."):
+                        ok = upravit_doplneni(token, ids_d[0], ed_litry, ed_cena)
+                    if ok:
+                        st.success("Uloženo")
+                        st.session_state.sa_dopl = False
+                        del st.session_state["df"], st.session_state["nacteno_pro"]
+                        st.session_state.tank_level, st.session_state.ceny_df, st.session_state.df_tank_vse = get_tank_info(token)
+                        st.rerun()
+                    else:
+                        st.error("Chyba při ukládání")
+
         c1, c2, c3 = st.columns(3)
         c1.metric("Celkem doplněno", f"{df_d['litry'].sum():.1f} L")
         c2.metric("Průměrná cena/L", f"{df_d['cena_za_litr'].mean():.2f} Kč")

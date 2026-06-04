@@ -270,6 +270,18 @@ def smazat_zamestnance(token: str, contact_id: str) -> bool:
                         headers=_headers(token))
     return r.status_code == 204
 
+def smazat_udalost(token: str, event_id: str) -> bool:
+    r = requests.delete(
+        f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+        headers=_headers(token))
+    if r.status_code == 401:
+        token2 = get_valid_token()
+        if token2:
+            r = requests.delete(
+                f"https://graph.microsoft.com/v1.0/me/events/{event_id}",
+                headers=_headers(token2))
+    return r.status_code == 204
+
 def _get_vozidla_folder_id(token: str) -> str | None:
     """Najde složku Vozidla (top-level nebo child)."""
     r = requests.get("https://graph.microsoft.com/v1.0/me/contactFolders",
@@ -754,7 +766,18 @@ with tab_t:
     cols = ["datum","uzivatel","spz","kategorie","platba","litry","tachometr","zaplaceno"]
     rename = {"datum":"Datum","uzivatel":"Uživatel","spz":"SPZ","kategorie":"Kategorie",
               "platba":"Platba","litry":"Litry (L)","tachometr":"Tachometr (km)","zaplaceno":"Zaplaceno"}
-    st.dataframe(df_t[cols].rename(columns=rename), use_container_width=True, hide_index=True)
+    df_t_disp = df_t[cols].rename(columns=rename).copy()
+    df_t_disp.insert(0, "☑", False)
+    edited_t = st.data_editor(df_t_disp, use_container_width=True, hide_index=True,
+                              column_config={"☑": st.column_config.CheckboxColumn("☑", width="small")})
+    ids_t = df_t[edited_t["☑"].values]["event_id"].tolist() if not df_t.empty else []
+    if ids_t:
+        if st.button(f"🗑 Smazat vybrané ({len(ids_t)})", type="primary", key="del_tank"):
+            with st.spinner("Mažu záznamy..."):
+                ok_count = sum(smazat_udalost(token, eid) for eid in ids_t)
+            st.success(f"Smazáno {ok_count} z {len(ids_t)} záznamů")
+            del st.session_state["df"], st.session_state["nacteno_pro"]
+            st.rerun()
 
 with tab_u:
     if not df_t.empty:
@@ -809,11 +832,20 @@ with tab_kat:
 
 with tab_d:
     if not df_d.empty:
-        st.dataframe(
-            df_d[["datum","litry","cena_za_litr","celkem_kc"]].rename(columns={
-                "datum":"Datum","litry":"Litry (L)",
-                "cena_za_litr":"Cena/L (Kč)","celkem_kc":"Celkem (Kč)"}),
-            use_container_width=True, hide_index=True)
+        df_d_disp = df_d[["datum","litry","cena_za_litr","celkem_kc"]].rename(columns={
+            "datum":"Datum","litry":"Litry (L)",
+            "cena_za_litr":"Cena/L (Kč)","celkem_kc":"Celkem (Kč)"}).copy()
+        df_d_disp.insert(0, "☑", False)
+        edited_d = st.data_editor(df_d_disp, use_container_width=True, hide_index=True,
+                                  column_config={"☑": st.column_config.CheckboxColumn("☑", width="small")})
+        ids_d = df_d[edited_d["☑"].values]["event_id"].tolist()
+        if ids_d:
+            if st.button(f"🗑 Smazat vybrané ({len(ids_d)})", type="primary", key="del_dopl"):
+                with st.spinner("Mažu záznamy..."):
+                    ok_count = sum(smazat_udalost(token, eid) for eid in ids_d)
+                st.success(f"Smazáno {ok_count} z {len(ids_d)} záznamů")
+                del st.session_state["df"], st.session_state["nacteno_pro"]
+                st.rerun()
         c1, c2, c3 = st.columns(3)
         c1.metric("Celkem doplněno", f"{df_d['litry'].sum():.1f} L")
         c2.metric("Průměrná cena/L", f"{df_d['cena_za_litr'].mean():.2f} Kč")

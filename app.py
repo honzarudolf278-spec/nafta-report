@@ -822,6 +822,8 @@ with tab_u:
             st.bar_chart(grp.set_index("Uživatel")["Litry (L)"])
         with c2:
             st.dataframe(grp, use_container_width=True, hide_index=True)
+    else:
+        st.info("V daném období nejsou žádná tankování.")
 
 with tab_spz:
     if not df_t.empty:
@@ -839,7 +841,6 @@ with tab_spz:
         spotreba = calculate_consumption(df_tank_vse)
         if not spotreba.empty:
             st.subheader("⛽ Průměrná spotřeba")
-            # Průměr na SPZ
             avg = spotreba.groupby("SPZ")["Spotřeba (L/100km)"].mean().reset_index()
             avg["Spotřeba (L/100km)"] = avg["Spotřeba (L/100km)"].round(1)
             c1, c2 = st.columns([1, 1])
@@ -849,6 +850,8 @@ with tab_spz:
                 st.dataframe(spotreba, use_container_width=True, hide_index=True)
         else:
             st.info("Pro výpočet spotřeby jsou potřeba alespoň dvě tankování se stavem tachometru u stejného vozidla.")
+    else:
+        st.info("V daném období nejsou žádná tankování.")
 
 with tab_kat:
     if not df_t.empty:
@@ -861,6 +864,8 @@ with tab_kat:
             st.bar_chart(grp.set_index("Kategorie")["Litry (L)"])
         with c2:
             st.dataframe(grp, use_container_width=True, hide_index=True)
+    else:
+        st.info("V daném období nejsou žádné kategorie.")
 
 with tab_d:
     if not df_d.empty:
@@ -888,6 +893,8 @@ with tab_d:
         c1.metric("Celkem doplněno", f"{df_d['litry'].sum():.1f} L")
         c2.metric("Průměrná cena/L", f"{df_d['cena_za_litr'].mean():.2f} Kč")
         c3.metric("Celkem zaplaceno", f"{df_d['celkem_kc'].sum():.0f} Kč")
+    else:
+        st.info("V daném období nejsou žádná doplnění.")
 
 with tab_kor:
     # Načteme korekce vždy z celé historie

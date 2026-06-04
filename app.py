@@ -270,6 +270,81 @@ def smazat_zamestnance(token: str, contact_id: str) -> bool:
                         headers=_headers(token))
     return r.status_code == 204
 
+def _get_vozidla_folder_id(token: str) -> str | None:
+    """Najde složku Vozidla (top-level nebo child)."""
+    r = requests.get("https://graph.microsoft.com/v1.0/me/contactFolders",
+                     headers=_headers(token))
+    if r.status_code != 200:
+        return None
+    for f in r.json().get("value", []):
+        if f["displayName"].lower() == "vozidla":
+            return f["id"]
+        # Hledej v podsložkách
+        rc = requests.get(
+            f"https://graph.microsoft.com/v1.0/me/contactFolders/{f['id']}/childFolders",
+            headers=_headers(token))
+        if rc.status_code == 200:
+            for c in rc.json().get("value", []):
+                if c["displayName"].lower() == "vozidla":
+                    return c["id"]
+    return None
+
+def _get_or_create_vozidla_folder(token: str) -> str | None:
+    """Vrátí ID složky Vozidla, nebo ji vytvoří jako podsložku Zaměstnanci."""
+    fid = _get_vozidla_folder_id(token)
+    if fid:
+        return fid
+    # Vytvoř pod složkou Zaměstnanci
+    zam_id = _get_or_create_contact_folder(token, "Zaměstnanci")
+    if not zam_id:
+        return None
+    r = requests.post(
+        f"https://graph.microsoft.com/v1.0/me/contactFolders/{zam_id}/childFolders",
+        headers={**_headers(token), "Content-Type": "application/json"},
+        json={"displayName": "Vozidla"})
+    if r.status_code == 201:
+        return r.json()["id"]
+    return None
+
+def nacist_vozidla_web(token: str) -> list[dict]:
+    fid = _get_vozidla_folder_id(token)
+    if not fid:
+        return []
+    r = requests.get(
+        f"https://graph.microsoft.com/v1.0/me/contactFolders/{fid}/contacts?$select=id,givenName,surname",
+        headers=_headers(token))
+    if r.status_code != 200:
+        return []
+    result = []
+    for c in r.json().get("value", []):
+        spz = (c.get("surname") or "").strip().upper()
+        typ = (c.get("givenName") or "").strip()
+        if spz:
+            result.append({"id": c["id"], "typ": typ, "spz": spz})
+    return sorted(result, key=lambda x: x["spz"])
+
+def pridat_vozidlo(token: str, typ: str, spz: str) -> bool:
+    fid = _get_or_create_vozidla_folder(token)
+    if not fid:
+        return False
+    r = requests.post(
+        f"https://graph.microsoft.com/v1.0/me/contactFolders/{fid}/contacts",
+        headers={**_headers(token), "Content-Type": "application/json"},
+        json={"givenName": typ, "surname": spz.upper()})
+    return r.status_code == 201
+
+def upravit_vozidlo(token: str, contact_id: str, typ: str, spz: str) -> bool:
+    r = requests.patch(
+        f"https://graph.microsoft.com/v1.0/me/contacts/{contact_id}",
+        headers={**_headers(token), "Content-Type": "application/json"},
+        json={"givenName": typ, "surname": spz.upper()})
+    return r.status_code in (200, 204)
+
+def smazat_vozidlo(token: str, contact_id: str) -> bool:
+    r = requests.delete(f"https://graph.microsoft.com/v1.0/me/contacts/{contact_id}",
+                        headers=_headers(token))
+    return r.status_code == 204
+
 # ── Korekce nádrže ────────────────────────────────────────────────────────────
 
 def ulozit_korekci_nadrze(token: str, litry: float, poznamka: str = "") -> bool:
@@ -847,3 +922,62 @@ with tab_admin:
                     st.rerun()
                 else:
                     st.error("Nepodařilo se přidat uživatele. Zkontrolujte oprávnění (Contacts.ReadWrite).")
+
+    st.divider()
+
+    # ── Správa vozidel ────────────────────────────────────────────────────────
+    st.markdown("### 🚗 Správa vozidel")
+
+    if "voz_list" not in st.session_state:
+        with st.spinner("Načítám vozidla..."):
+            st.session_state.voz_list = nacist_vozidla_web(token)
+
+    if st.button("🔄 Obnovit seznam vozidel"):
+        with st.spinner("Načítám..."):
+            st.session_state.voz_list = nacist_vozidla_web(token)
+
+    voz_list = st.session_state.voz_list
+    if voz_list:
+        for v in voz_list:
+            with st.expander(f"**{v['spz']}** — {v['typ']}"):
+                vc1, vc2, vc3 = st.columns([2, 2, 1])
+                v_typ = vc1.text_input("Typ vozidla", value=v["typ"], key=f"vtyp_{v['id']}")
+                v_spz = vc2.text_input("SPZ", value=v["spz"], key=f"vspz_{v['id']}")
+                vc3.write("")
+                vc3.write("")
+                if vc3.button("💾", key=f"vsave_{v['id']}", help="Uložit"):
+                    ok = upravit_vozidlo(token, v["id"], v_typ, v_spz)
+                    if ok:
+                        st.success("Uloženo")
+                        st.session_state.voz_list = nacist_vozidla_web(token)
+                        st.rerun()
+                    else:
+                        st.error("Chyba při ukládání")
+                if vc3.button("🗑", key=f"vdel_{v['id']}", help="Smazat"):
+                    ok = smazat_vozidlo(token, v["id"])
+                    if ok:
+                        st.success("Smazáno")
+                        st.session_state.voz_list = nacist_vozidla_web(token)
+                        st.rerun()
+                    else:
+                        st.error("Chyba při mazání")
+    else:
+        st.info("Složka Vozidla je prázdná nebo nebyla nalezena.")
+
+    st.markdown("#### ➕ Přidat vozidlo")
+    with st.form("nove_vozidlo"):
+        vf1, vf2 = st.columns(2)
+        nv_typ = vf1.text_input("Typ vozidla (např. Octavia)")
+        nv_spz = vf2.text_input("SPZ (např. 9AF 1888)")
+        if st.form_submit_button("Přidat vozidlo", type="primary"):
+            if not nv_spz:
+                st.error("SPZ je povinná.")
+            else:
+                with st.spinner("Ukládám..."):
+                    ok = pridat_vozidlo(token, nv_typ, nv_spz)
+                if ok:
+                    st.success(f"Vozidlo {nv_spz} přidáno.")
+                    st.session_state.voz_list = nacist_vozidla_web(token)
+                    st.rerun()
+                else:
+                    st.error("Nepodařilo se přidat vozidlo.")

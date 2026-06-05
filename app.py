@@ -248,7 +248,7 @@ def nacist_zamestnance_web(token: str) -> list[dict]:
     for c in r2.json().get("value", []):
         notes = c.get("personalNotes", "")
         pin_m   = re.search(r"Heslo:\s*(\S+)",                          notes)
-        limit_m = re.search(r"proplácen[eé]:\s*(\d+)", notes, re.IGNORECASE)
+        limit_m = re.search(r"proplácen[eéí]:\s*(\d+)", notes, re.IGNORECASE)
         spz_m   = re.search(r"SPZ:\s*([A-Z0-9 ]+)",    notes, re.IGNORECASE)
         result.append({
             "id":       c["id"],

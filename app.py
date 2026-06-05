@@ -1088,17 +1088,17 @@ with tab_admin:
     if zam_list:
         for z in zam_list:
             with st.expander(f"**{z['jmeno']}**  —  PIN: {'*' * len(z['pin'])}  |  Limit: {z['limit']} Kč"):
-                er1, er2, er3 = st.columns([1, 2, 2])
-                new_titul    = er1.text_input("Titul",    value=z.get("title", ""),    key=f"ti_{z['id']}", placeholder="Ing.")
-                new_jmeno    = er2.text_input("Jméno",    value=z.get("givenName", ""), key=f"jm_{z['id']}")
-                new_prijmeni = er3.text_input("Příjmení", value=z.get("surname", ""),   key=f"pr_{z['id']}")
-                ec1, ec2, ec3, ec4 = st.columns([2, 2, 2, 1])
-                new_pin   = ec1.text_input("PIN",          value=z["pin"],               key=f"pin_{z['id']}")
-                new_limit = ec2.number_input("Limit (Kč)", value=int(z["limit"] or 0),   min_value=0, step=100, key=f"lim_{z['id']}")
-                new_spz   = ec3.text_input("Pref. SPZ",    value=z["spz"],               key=f"spz_{z['id']}")
-                ec4.write("")
-                ec4.write("")
-                if ec4.button("💾", key=f"save_{z['id']}", help="Uložit změny"):
+                with st.form(key=f"form_zam_{z['id']}"):
+                    er1, er2, er3 = st.columns([1, 2, 2])
+                    new_titul    = er1.text_input("Titul",    value=z.get("title", ""),     placeholder="Ing.")
+                    new_jmeno    = er2.text_input("Jméno",    value=z.get("givenName", ""))
+                    new_prijmeni = er3.text_input("Příjmení", value=z.get("surname", ""))
+                    ec1, ec2, ec3 = st.columns([2, 2, 2])
+                    new_pin   = ec1.text_input("PIN",          value=z["pin"])
+                    new_limit = ec2.number_input("Limit (Kč)", value=int(z["limit"] or 0), min_value=0, step=100)
+                    new_spz   = ec3.text_input("Pref. SPZ",    value=z["spz"])
+                    save_ok = st.form_submit_button("💾 Uložit změny", type="primary", use_container_width=True)
+                if save_ok:
                     ok = upravit_zamestnance(token, z["id"], new_titul, new_jmeno, new_prijmeni, new_pin, new_limit, new_spz)
                     if ok:
                         st.success("Uloženo")
@@ -1106,7 +1106,7 @@ with tab_admin:
                         st.rerun()
                     else:
                         st.error("Chyba při ukládání")
-                if ec4.button("🗑", key=f"del_{z['id']}", help="Smazat uživatele"):
+                if st.button("🗑 Smazat", key=f"del_{z['id']}", type="secondary"):
                     ok = smazat_zamestnance(token, z["id"])
                     if ok:
                         st.success("Smazáno")
@@ -1158,12 +1158,12 @@ with tab_admin:
     if voz_list:
         for v in voz_list:
             with st.expander(f"**{v['spz']}** — {v['typ']}"):
-                vc1, vc2, vc3 = st.columns([2, 2, 1])
-                v_typ = vc1.text_input("Typ vozidla", value=v["typ"], key=f"vtyp_{v['id']}")
-                v_spz = vc2.text_input("SPZ", value=v["spz"], key=f"vspz_{v['id']}")
-                vc3.write("")
-                vc3.write("")
-                if vc3.button("💾", key=f"vsave_{v['id']}", help="Uložit"):
+                with st.form(key=f"form_voz_{v['id']}"):
+                    vc1, vc2 = st.columns([2, 2])
+                    v_typ = vc1.text_input("Typ vozidla", value=v["typ"])
+                    v_spz = vc2.text_input("SPZ", value=v["spz"])
+                    vsave = st.form_submit_button("💾 Uložit", type="primary", use_container_width=True)
+                if vsave:
                     ok = upravit_vozidlo(token, v["id"], v_typ, v_spz)
                     if ok:
                         st.success("Uloženo")
@@ -1171,7 +1171,7 @@ with tab_admin:
                         st.rerun()
                     else:
                         st.error("Chyba při ukládání")
-                if vc3.button("🗑", key=f"vdel_{v['id']}", help="Smazat"):
+                if st.button("🗑 Smazat", key=f"vdel_{v['id']}", type="secondary"):
                     ok = smazat_vozidlo(token, v["id"])
                     if ok:
                         st.success("Smazáno")

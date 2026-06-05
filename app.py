@@ -650,14 +650,15 @@ if not st.session_state.get("pin_ok"):
     """, unsafe_allow_html=True)
     _, col, _ = st.columns([1, 1, 1])
     with col:
-        st.text_input("Uživatel", placeholder="uživatel", autocomplete="username",
-                      label_visibility="collapsed", key="_login_user")
-        pin = st.text_input("PIN", type="password", label_visibility="collapsed",
-                            placeholder="PIN", autocomplete="current-password")
-        if st.button("Vstoupit", type="primary", use_container_width=True):
+        with st.form("login_form"):
+            zadany_user = st.text_input("Uživatel", placeholder="uživatel", autocomplete="username",
+                                        label_visibility="collapsed")
+            pin = st.text_input("PIN", type="password", label_visibility="collapsed",
+                                placeholder="PIN", autocomplete="current-password")
+            submitted = st.form_submit_button("Vstoupit", type="primary", use_container_width=True)
+        if submitted:
             spravny_pin  = st.secrets.get("app", {}).get("pin", "")
             spravny_user = st.secrets.get("app", {}).get("username", "martver_user")
-            zadany_user  = st.session_state.get("_login_user", "")
             if zadany_user == spravny_user and pin == spravny_pin:
                 st.session_state.pin_ok = True
                 st.rerun()

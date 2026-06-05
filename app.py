@@ -240,7 +240,7 @@ def nacist_zamestnance_web(token: str) -> list[dict]:
                 break
     if not folder_id:
         return []
-    url = f"https://graph.microsoft.com/v1.0/me/contactFolders/{folder_id}/contacts?$select=id,displayName,givenName,surname,title,personalNotes"
+    url = f"https://graph.microsoft.com/v1.0/me/contactFolders/{folder_id}/contacts?$select=id,displayName,givenName,surname,title,personalNotes&$top=999"
     r2 = requests.get(url, headers=_headers(token))
     if r2.status_code != 200:
         return []
@@ -373,7 +373,7 @@ def nacist_vozidla_web(token: str) -> list[dict]:
     if not fid:
         return []
     r = requests.get(
-        f"https://graph.microsoft.com/v1.0/me/contactFolders/{fid}/contacts?$select=id,givenName,surname",
+        f"https://graph.microsoft.com/v1.0/me/contactFolders/{fid}/contacts?$select=id,givenName,surname&$top=999",
         headers=_headers(token))
     if r.status_code != 200:
         return []

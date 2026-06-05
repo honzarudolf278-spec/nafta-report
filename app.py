@@ -870,9 +870,20 @@ with tab_t:
 
 with tab_u:
     if not df_t.empty:
-        grp = df_t.groupby("uzivatel")["litry"].agg(Tankování="count", Litry="sum").reset_index()
-        grp.columns = ["Uživatel","Tankování","Litry (L)"]
+        ceny_df = st.session_state.get("ceny_df", pd.DataFrame(columns=["datum", "cena_za_litr"]))
+        df_t2 = df_t.copy()
+        df_t2["cena_za_litr_r"] = df_t2["datum"].apply(lambda d: _cena_pro_datum(ceny_df, d))
+        df_t2["castka_kc"] = df_t2.apply(
+            lambda r: round(r["litry"] * r["cena_za_litr_r"], 0)
+            if (r["litry"] and r["cena_za_litr_r"]) else None, axis=1
+        )
+        grp = df_t2.groupby("uzivatel").agg(
+            Tankování=("litry", "count"),
+            **{"Litry (L)": ("litry", "sum")},
+            **{"Částka (Kč)": ("castka_kc", "sum")},
+        ).reset_index().rename(columns={"uzivatel": "Uživatel"})
         grp["Litry (L)"] = grp["Litry (L)"].round(1)
+        grp["Částka (Kč)"] = grp["Částka (Kč)"].apply(lambda x: f"{x:.0f}" if pd.notna(x) else "–")
         grp = grp.sort_values("Litry (L)", ascending=False)
         c1, c2 = st.columns([2, 1])
         with c1:
